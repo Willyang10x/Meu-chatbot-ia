@@ -1,0 +1,6 @@
+# Ignorar ambiente virtual
+venv/
+__pycache__/
+
+# Ignorar chaves de API
+.env
