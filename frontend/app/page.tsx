@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 type Mensagem = {
   autor: "usuario" | "ia";
@@ -41,7 +42,7 @@ export default function Home() {
       console.error("Erro ao comunicar com a API:", error);
       setMensagens((prev) => [
         ...prev,
-        { autor: "ia", texto: "Desculpe, ocorreu um erro de conexão. O backend está rodando?" },
+        { autor: "ia", texto: "Desculpe, ocorreu um erro de conexão." },
       ]);
     } finally {
       setCarregando(false);
@@ -70,7 +71,15 @@ export default function Home() {
                     : "bg-gray-200 text-gray-800 self-start rounded-tl-none"
                 }`}
               >
-                {msg.texto}
+                {msg.autor === "ia" ? (
+                  <div className="prose prose-sm max-w-none text-gray-800">
+                    <ReactMarkdown>
+                      {msg.texto}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  msg.texto
+                )}
               </div>
             ))}
             {carregando && (
