@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
 from google import genai
@@ -49,9 +50,14 @@ def conversar_com_ia(mensagem: MensagemUsuario):
                 types.Content(role=papel, parts=[types.Part.from_text(text=msg["texto"])])
             )
             
+        data_hoje = datetime.now().strftime("%d/%m/%Y")
+            
         sessoes_chat[sessao] = client.chats.create(
             model='gemini-2.5-flash',
-            history=historico_formatado
+            history=historico_formatado,
+            config=types.GenerateContentConfig(
+                system_instruction=f"Você é um assistente prestativo. Hoje é dia {data_hoje}."
+            )
         )
         
     chat_atual = sessoes_chat[sessao]

@@ -12,27 +12,37 @@ export default function Home() {
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [input, setInput] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [sessaoId, setSessaoId] = useState<string>("");
 
   useEffect(() => {
-    const carregarHistorico = async () => {
+    let idSalvo = localStorage.getItem("chatbot_sessao_id");
+    
+    if (!idSalvo) {
+      idSalvo = "sessao_" + crypto.randomUUID();
+      localStorage.setItem("chatbot_sessao_id", idSalvo);
+    }
+    
+    setSessaoId(idSalvo);
+
+    const carregarHistorico = async (id: string) => {
       try {
-        const resposta = await fetch("http://127.0.0.1:8000/chat/sessao_nextjs");
+        const resposta = await fetch(`http://127.0.0.1:8000/chat/${id}`);
         const dados = await resposta.json();
         
         if (dados.mensagens && dados.mensagens.length > 0) {
           setMensagens(dados.mensagens);
         }
       } catch (error) {
-        console.error("Erro ao carregar histórico:", error);
+        console.error(error);
       }
     };
 
-    carregarHistorico();
+    carregarHistorico(idSalvo);
   }, []);
 
   const enviarMensagem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || !sessaoId) return;
 
     const novaMensagemUsuario: Mensagem = { autor: "usuario", texto: input };
     setMensagens((prev) => [...prev, novaMensagemUsuario]);
@@ -45,7 +55,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           texto: novaMensagemUsuario.texto,
-          sessao_id: "sessao_nextjs",
+          sessao_id: sessaoId,
         }),
       });
 
@@ -56,7 +66,7 @@ export default function Home() {
         { autor: "ia", texto: dados.resposta },
       ]);
     } catch (error) {
-      console.error("Erro ao comunicar com a API:", error);
+      console.error(error);
       setMensagens((prev) => [
         ...prev,
         { autor: "ia", texto: "Desculpe, ocorreu um erro de conexão." },
