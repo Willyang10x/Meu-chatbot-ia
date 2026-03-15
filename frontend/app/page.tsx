@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
+);
 
 type Mensagem = {
   autor: "usuario" | "ia";
@@ -14,6 +20,14 @@ type Sessao = {
 };
 
 export default function Home() {
+  const [emailInput, setEmailInput] = useState("");
+  const [senhaInput, setSenhaInput] = useState("");
+  const [modoAuth, setModoAuth] = useState<"login" | "cadastro" | "esqueci">("login");
+  const [erroAuth, setErroAuth] = useState("");
+  const [msgSucesso, setMsgSucesso] = useState("");
+  const [loadingAuth, setLoadingAuth] = useState(false);
+  const [usuarioLogado, setUsuarioLogado] = useState("");
+  
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [input, setInput] = useState("");
   const [carregando, setCarregando] = useState(false);
@@ -24,6 +38,67 @@ export default function Home() {
 
   const rolarParaOFinal = () => {
     fimDasMensagensRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setUsuarioLogado(session.user.email);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.email) {
+        setUsuarioLogado(session.user.email);
+      } else {
+        setUsuarioLogado("");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroAuth("");
+    setMsgSucesso("");
+    setLoadingAuth(true);
+
+    try {
+      if (modoAuth === "cadastro") {
+        const { error } = await supabase.auth.signUp({
+          email: emailInput,
+          password: senhaInput,
+        });
+        if (error) throw error;
+        setMsgSucesso("Conta criada com sucesso! A entrar...");
+      } else if (modoAuth === "login") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: emailInput,
+          password: senhaInput,
+        });
+        if (error) throw error;
+      } else if (modoAuth === "esqueci") {
+        const { error } = await supabase.auth.resetPasswordForEmail(emailInput);
+        if (error) throw error;
+        setMsgSucesso("Instruções de recuperação enviadas para o email.");
+      }
+    } catch (error: any) {
+      setErroAuth(error.message || "Ocorreu um erro na autenticação.");
+    } finally {
+      setLoadingAuth(false);
+    }
+  };
+
+  const fazerLogout = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("chatbot_sessao_id");
+    setUsuarioLogado("");
+    setEmailInput("");
+    setSenhaInput("");
+    setSessoes([]);
+    setMensagens([]);
+    setSessaoId("");
   };
 
   const carregarHistorico = async (id: string) => {
@@ -40,9 +115,9 @@ export default function Home() {
     }
   };
 
-  const carregarSessoes = async () => {
+  const carregarSessoes = async (email: string) => {
     try {
-      const resposta = await fetch("https://meu-chatbot-ia-01xd.onrender.com/sessoes");
+      const resposta = await fetch(`https://meu-chatbot-ia-01xd.onrender.com/sessoes/${email}`);
       const dados = await resposta.json();
       if (dados.sessoes) {
         setSessoes(dados.sessoes);
@@ -53,6 +128,8 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!usuarioLogado) return;
+    
     let idSalvo = localStorage.getItem("chatbot_sessao_id");
     if (!idSalvo) {
       idSalvo = "sessao_" + crypto.randomUUID();
@@ -60,8 +137,8 @@ export default function Home() {
     }
     setSessaoId(idSalvo);
     carregarHistorico(idSalvo);
-    carregarSessoes();
-  }, []);
+    carregarSessoes(usuarioLogado);
+  }, [usuarioLogado]);
 
   useEffect(() => {
     rolarParaOFinal();
@@ -84,7 +161,7 @@ export default function Home() {
 
   const enviarMensagem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !sessaoId) return;
+    if (!input.trim() || !sessaoId || !usuarioLogado) return;
 
     const novaMensagemUsuario: Mensagem = { autor: "usuario", texto: input };
     setMensagens((prev) => [...prev, novaMensagemUsuario]);
@@ -98,12 +175,13 @@ export default function Home() {
         body: JSON.stringify({
           texto: novaMensagemUsuario.texto,
           sessao_id: sessaoId,
+          usuario_email: usuarioLogado
         }),
       });
 
       const dados = await resposta.json();
       setMensagens((prev) => [...prev, { autor: "ia", texto: dados.resposta }]);
-      carregarSessoes();
+      carregarSessoes(usuarioLogado);
     } catch (error) {
       console.error(error);
       setMensagens((prev) => [...prev, { autor: "ia", texto: "Desculpe, ocorreu um erro de conexão." }]);
@@ -111,6 +189,70 @@ export default function Home() {
       setCarregando(false);
     }
   };
+
+  if (!usuarioLogado) {
+    return (
+      <div className="flex flex-col h-screen bg-[#212121] text-gray-100 font-sans items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#2f2f2f] p-8 rounded-2xl shadow-xl border border-gray-700/50">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-center mb-2">
+            {modoAuth === "login" ? "Bem-vindo de volta" : modoAuth === "cadastro" ? "Criar Conta" : "Recuperar Senha"}
+          </h2>
+          <p className="text-gray-400 text-center mb-6 text-sm">
+            {modoAuth === "login" ? "Insira os seus dados para entrar" : modoAuth === "cadastro" ? "Registe-se para aceder ao chat" : "Enviaremos um link para o seu email"}
+          </p>
+
+          {erroAuth && <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200 text-sm">{erroAuth}</div>}
+          {msgSucesso && <div className="mb-4 p-3 bg-green-900/50 border border-green-500 rounded-lg text-green-200 text-sm">{msgSucesso}</div>}
+          
+          <form onSubmit={handleAuth} className="flex flex-col gap-4">
+            <input
+              type="email"
+              required
+              placeholder="seu.email@exemplo.com"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              className="w-full bg-[#212121] text-gray-100 px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all"
+            />
+            {modoAuth !== "esqueci" && (
+              <input
+                type="password"
+                required
+                placeholder="Sua senha"
+                value={senhaInput}
+                onChange={(e) => setSenhaInput(e.target.value)}
+                className="w-full bg-[#212121] text-gray-100 px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all"
+              />
+            )}
+            <button
+              type="submit"
+              disabled={loadingAuth}
+              className="w-full bg-white text-black font-semibold py-3 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+            >
+              {loadingAuth ? "Aguarde..." : modoAuth === "login" ? "Entrar" : modoAuth === "cadastro" ? "Registar" : "Enviar Email"}
+            </button>
+          </form>
+
+          <div className="mt-6 flex flex-col items-center gap-2 text-sm">
+            {modoAuth === "login" ? (
+              <>
+                <button onClick={() => { setModoAuth("cadastro"); setErroAuth(""); setMsgSucesso(""); }} className="text-gray-400 hover:text-white transition-colors">Não tem conta? Registe-se</button>
+                <button onClick={() => { setModoAuth("esqueci"); setErroAuth(""); setMsgSucesso(""); }} className="text-gray-500 hover:text-gray-300 transition-colors">Esqueceu a senha?</button>
+              </>
+            ) : (
+              <button onClick={() => { setModoAuth("login"); setErroAuth(""); setMsgSucesso(""); }} className="text-gray-400 hover:text-white transition-colors">Já tem conta? Entrar</button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#212121] text-gray-100 font-sans overflow-hidden">
@@ -150,6 +292,19 @@ export default function Home() {
               {sessao.titulo}
             </button>
           ))}
+        </div>
+
+        <div className="p-3 border-t border-gray-700/50">
+          <div className="flex items-center justify-between px-3 py-2 text-sm text-gray-400">
+            <span className="truncate pr-2">{usuarioLogado}</span>
+            <button onClick={fazerLogout} className="hover:text-white transition-colors" title="Sair">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </button>
+          </div>
         </div>
       </aside>
 
