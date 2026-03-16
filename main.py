@@ -119,3 +119,10 @@ def listar_sessoes(usuario_email: str):
     lista_sessoes.reverse()
     
     return {"sessoes": lista_sessoes}
+
+@app.delete("/sessoes/{sessao_id}")
+def apagar_sessao(sessao_id: str):
+    supabase.table("mensagens_chat").delete().eq("sessao_id", sessao_id).execute()
+    if sessao_id in sessoes_chat:
+        del sessoes_chat[sessao_id]
+    return {"status": "apagado"}
