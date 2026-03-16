@@ -34,6 +34,7 @@ export default function Home() {
   const [sessaoId, setSessaoId] = useState<string>("");
   const [sessoes, setSessoes] = useState<Sessao[]>([]);
   const [menuAberto, setMenuAberto] = useState(false);
+  const [copiadoIndex, setCopiadoIndex] = useState<number | null>(null);
   const fimDasMensagensRef = useRef<HTMLDivElement>(null);
 
   const rolarParaOFinal = () => {
@@ -127,6 +128,41 @@ export default function Home() {
     }
   };
 
+  const apagarSessao = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const resposta = await fetch(`https://meu-chatbot-ia-01xd.onrender.com/sessoes/${id}`, {
+        method: "DELETE",
+      });
+
+      if (resposta.ok) {
+        setSessoes((prev) => prev.filter((s) => s.id !== id));
+        if (sessaoId === id) {
+          iniciarNovaConversa();
+        }
+      } else {
+        alert("Erro: O servidor não permitiu apagar. Verifique o Render e a chave service_role.");
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const copiarTexto = (texto: string, index: number) => {
+    // Regex mágico para limpar as formatações Markdown (negrito, itálico, títulos, etc.)
+    const textoLimpo = texto
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove negrito
+      .replace(/\*(.*?)\*/g, '$1')     // Remove itálico
+      .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, '')) // Limpa formatação de blocos de código
+      .replace(/`(.*?)`/g, '$1')       // Remove código inline
+      .replace(/^#+\s+(.*)$/gm, '$1')  // Remove # Títulos
+      .replace(/~~(.*?)~~/g, '$1');    // Remove texto riscado
+
+    navigator.clipboard.writeText(textoLimpo);
+    setCopiadoIndex(index);
+    setTimeout(() => setCopiadoIndex(null), 2000);
+  };
+
   useEffect(() => {
     if (!usuarioLogado) return;
     
@@ -169,7 +205,7 @@ export default function Home() {
     setCarregando(true);
 
     try {
-      const resposta = await fetch("https://meu-chatbot-ia-01xd.onrender.com/chat", {
+      const resposta = await fetch("[https://meu-chatbot-ia-01xd.onrender.com/chat](https://meu-chatbot-ia-01xd.onrender.com/chat)", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -284,13 +320,18 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-1 mt-2">
           <h3 className="text-xs font-semibold text-gray-500 mb-2 px-2">Histórico</h3>
           {sessoes.map((sessao) => (
-            <button
-              key={sessao.id}
-              onClick={() => selecionarSessao(sessao.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm truncate transition-colors ${sessaoId === sessao.id ? "bg-[#212121] text-white" : "text-gray-300 hover:bg-[#212121]"}`}
-            >
-              {sessao.titulo}
-            </button>
+            <div key={sessao.id} className={`group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-sm transition-colors ${sessaoId === sessao.id ? "bg-[#212121] text-white" : "text-gray-300 hover:bg-[#212121]"}`}>
+              <button onClick={() => selecionarSessao(sessao.id)} className="flex-1 text-left truncate pr-2">
+                {sessao.titulo}
+              </button>
+              <button onClick={(e) => apagarSessao(sessao.id, e)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all" title="Apagar conversa">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"></path>
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
 
@@ -342,11 +383,22 @@ export default function Home() {
                       </svg>
                     </div>
                   )}
-                  <div className={`max-w-[85%] md:max-w-[75%] px-5 py-3 ${msg.autor === "usuario" ? "bg-[#2f2f2f] text-gray-100 rounded-3xl" : "bg-transparent text-gray-100 px-0 rounded-none"}`}>
+                  <div className={`max-w-[85%] md:max-w-[75%] px-5 py-3 ${msg.autor === "usuario" ? "bg-[#2f2f2f] text-gray-100 rounded-3xl" : "flex flex-col bg-transparent text-gray-100 px-0 rounded-none w-full"}`}>
                     {msg.autor === "ia" ? (
-                      <div className="prose prose-invert max-w-none text-gray-200 leading-relaxed">
-                        <ReactMarkdown>{msg.texto}</ReactMarkdown>
-                      </div>
+                      <>
+                        <div className="prose prose-invert max-w-none text-gray-200 leading-relaxed">
+                          <ReactMarkdown>{msg.texto}</ReactMarkdown>
+                        </div>
+                        <div className="flex justify-start mt-3">
+                          <button onClick={() => copiarTexto(msg.texto, index)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors" title="Copiar resposta">
+                            {copiadoIndex === index ? (
+                              <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><polyline points="20 6 9 17 4 12"></polyline></svg> Copiado</>
+                            ) : (
+                              <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copiar</>
+                            )}
+                          </button>
+                        </div>
+                      </>
                     ) : (
                       <p className="whitespace-pre-wrap leading-relaxed">{msg.texto}</p>
                     )}
