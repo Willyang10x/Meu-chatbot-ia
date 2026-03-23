@@ -12,7 +12,7 @@ const supabase = createClient(
 type Mensagem = {
   autor: "usuario" | "ia";
   texto: string;
-  imagem?: string; // Adicionamos a imagem aqui para o chat lembrar dela!
+  imagem?: string;
 };
 
 type Sessao = {
@@ -313,7 +313,6 @@ export default function Home() {
       textoMensagem = "Analise esta imagem.";
     }
 
-    // AQUI ESTÁ A MAGIA! Guardamos a imagem no balão do utilizador
     const novaMensagemUsuario: Mensagem = { 
       autor: "usuario", 
       texto: textoMensagem,
@@ -355,6 +354,37 @@ export default function Home() {
       e.preventDefault();
       enviarMensagem();
     }
+  };
+
+  const exportarConversa = () => {
+    if (mensagens.length === 0) {
+      alert("Não há mensagens para exportar.");
+      return;
+    }
+
+    const sessaoAtual = sessoes.find(s => s.id === sessaoId);
+    const tituloArquivo = sessaoAtual ? sessaoAtual.titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'conversa';
+
+    let conteudo = `=================================================\n`;
+    conteudo += `   HISTÓRICO DA CONVERSA - CHAT IA\n`;
+    conteudo += `   Data: ${new Date().toLocaleString('pt-PT')}\n`;
+    conteudo += `=================================================\n\n`;
+
+    mensagens.forEach((msg) => {
+      const autor = msg.autor === "usuario" ? "Você" : "IA";
+      const textoLimpo = msg.texto.replace(/!\[.*?\]\(.*?\)/g, "[Imagem Gerada pelo Sistema]");
+      conteudo += `[${autor}]\n${textoLimpo}\n\n-------------------------------------------------\n\n`;
+    });
+
+    const blob = new Blob([conteudo], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `chat_${tituloArquivo}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (!usuarioLogado) {
@@ -481,16 +511,36 @@ export default function Home() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        <header className="md:hidden flex items-center justify-between p-3 border-b border-gray-700/50 bg-[#212121]">
-          <button onClick={() => setMenuAberto(true)} className="p-2 text-gray-300 hover:text-white">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
-          </button>
-          <h1 className="text-lg font-semibold text-gray-200">Chat IA</h1>
-          <div className="w-8"></div>
+        
+        <header className="flex items-center justify-between p-3 border-b border-gray-700/50 bg-[#212121]">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setMenuAberto(true)} className="md:hidden p-2 text-gray-300 hover:text-white">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <h1 className="hidden md:block text-lg font-semibold text-gray-200">Chat IA</h1>
+          </div>
+          
+          <h1 className="md:hidden text-lg font-semibold text-gray-200">Chat IA</h1>
+
+          <div className="flex items-center">
+            <button
+              onClick={exportarConversa}
+              disabled={mensagens.length === 0}
+              className="flex items-center gap-2 px-3 py-1.5 bg-transparent hover:bg-[#2f2f2f] text-sm text-gray-300 rounded-lg transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Exportar Conversa (TXT)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span className="hidden sm:inline">Exportar</span>
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto w-full flex flex-col items-center">
