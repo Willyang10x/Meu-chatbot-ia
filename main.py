@@ -2,6 +2,7 @@ import os
 import base64
 from datetime import datetime
 from fastapi import FastAPI
+from typing import Optional
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
@@ -36,7 +37,7 @@ class MensagemUsuario(BaseModel):
     texto: str
     sessao_id: str = "usuario_padrao"
     usuario_email: str = "anonimo"
-    imagem: str | None = None  # Novo campo para a imagem em Base64
+    imagem: Optional[str] = None
 
 sessoes_chat = {}
 
