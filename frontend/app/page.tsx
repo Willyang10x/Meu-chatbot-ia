@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
+import { jsPDF } from "jspdf"; // IMPORTAMOS A BIBLIOTECA DE PDF AQUI
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
@@ -356,35 +357,77 @@ export default function Home() {
     }
   };
 
-  const exportarConversa = () => {
+  // NOVA FUNÇÃO: Exportar Conversa em PDF usando jsPDF
+  const exportarConversaPDF = () => {
     if (mensagens.length === 0) {
       alert("Não há mensagens para exportar.");
       return;
     }
 
+    const doc = new jsPDF();
+    const margemEsq = 15;
+    let posicaoY = 20;
+    const larguraMaxima = 180; // Largura do texto antes de quebrar a linha
+
     const sessaoAtual = sessoes.find(s => s.id === sessaoId);
     const tituloArquivo = sessaoAtual ? sessaoAtual.titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'conversa';
 
-    let conteudo = `=================================================\n`;
-    conteudo += `   HISTÓRICO DA CONVERSA - CHAT IA\n`;
-    conteudo += `   Data: ${new Date().toLocaleString('pt-PT')}\n`;
-    conteudo += `=================================================\n\n`;
+    // Título do PDF
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Histórico da Conversa - Chat IA", margemEsq, posicaoY);
+    posicaoY += 8;
 
+    // Data da Exportação
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Data: ${new Date().toLocaleString('pt-PT')}`, margemEsq, posicaoY);
+    posicaoY += 5;
+    
+    // Linha Separadora
+    doc.line(margemEsq, posicaoY, 195, posicaoY);
+    posicaoY += 10;
+
+    // Percorrer todas as mensagens e adicioná-las ao PDF
     mensagens.forEach((msg) => {
-      const autor = msg.autor === "usuario" ? "Você" : "IA";
-      const textoLimpo = msg.texto.replace(/!\[.*?\]\(.*?\)/g, "[Imagem Gerada pelo Sistema]");
-      conteudo += `[${autor}]\n${textoLimpo}\n\n-------------------------------------------------\n\n`;
+      const autor = msg.autor === "usuario" ? "Você:" : "Inteligência Artificial:";
+      
+      // Limpar marcações pesadas de Markdown para o PDF ficar limpo
+      let textoLimpo = msg.texto
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/!\[.*?\]\(.*?\)/g, "[Imagem Gerada Aqui]");
+
+      // Escrever o Autor em Negrito
+      doc.setFont("helvetica", "bold");
+      
+      // Verificar se há espaço na página para o Autor, se não, cria nova página
+      if (posicaoY > 270) {
+        doc.addPage();
+        posicaoY = 20;
+      }
+      
+      doc.text(autor, margemEsq, posicaoY);
+      posicaoY += 6;
+
+      // Escrever o Texto Normal com quebra de linha inteligente
+      doc.setFont("helvetica", "normal");
+      const linhasTexto = doc.splitTextToSize(textoLimpo, larguraMaxima);
+      
+      for (let i = 0; i < linhasTexto.length; i++) {
+        if (posicaoY > 280) { // Se chegar ao fundo da folha (A4 tem ~297mm)
+          doc.addPage();
+          posicaoY = 20;
+        }
+        doc.text(linhasTexto[i], margemEsq, posicaoY);
+        posicaoY += 6;
+      }
+      
+      posicaoY += 8; // Espaço extra entre as mensagens
     });
 
-    const blob = new Blob([conteudo], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `chat_${tituloArquivo}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Descarregar o ficheiro PDF
+    doc.save(`chat_${tituloArquivo}.pdf`);
   };
 
   if (!usuarioLogado) {
@@ -528,17 +571,18 @@ export default function Home() {
 
           <div className="flex items-center">
             <button
-              onClick={exportarConversa}
+              onClick={exportarConversaPDF}
               disabled={mensagens.length === 0}
-              className="flex items-center gap-2 px-3 py-1.5 bg-transparent hover:bg-[#2f2f2f] text-sm text-gray-300 rounded-lg transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Exportar Conversa (TXT)"
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-900/40 hover:bg-red-800/60 text-sm text-red-200 rounded-lg transition-colors border border-red-800/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Exportar Conversa em PDF"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
               </svg>
-              <span className="hidden sm:inline">Exportar</span>
+              <span className="hidden sm:inline">Exportar PDF</span>
             </button>
           </div>
         </header>
