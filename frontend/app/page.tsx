@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { createClient } from "@supabase/supabase-js";
-import { jsPDF } from "jspdf"; // IMPORTAMOS A BIBLIOTECA DE PDF AQUI
+import { jsPDF } from "jspdf";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
@@ -43,6 +43,8 @@ export default function Home() {
   
   const [imagemBase64, setImagemBase64] = useState<string | null>(null);
   const [imagemPreview, setImagemPreview] = useState<string | null>(null);
+  
+  const [persona, setPersona] = useState<string>("Padrão");
   
   const fimDasMensagensRef = useRef<HTMLDivElement>(null);
   const reconhecimentoRef = useRef<any>(null);
@@ -335,7 +337,8 @@ export default function Home() {
           texto: textoMensagem,
           sessao_id: sessaoId,
           usuario_email: usuarioLogado,
-          imagem: imagemEnviada
+          imagem: imagemEnviada,
+          persona: persona
         }),
       });
 
@@ -357,7 +360,6 @@ export default function Home() {
     }
   };
 
-  // NOVA FUNÇÃO: Exportar Conversa em PDF usando jsPDF
   const exportarConversaPDF = () => {
     if (mensagens.length === 0) {
       alert("Não há mensagens para exportar.");
@@ -367,41 +369,34 @@ export default function Home() {
     const doc = new jsPDF();
     const margemEsq = 15;
     let posicaoY = 20;
-    const larguraMaxima = 180; // Largura do texto antes de quebrar a linha
+    const larguraMaxima = 180;
 
     const sessaoAtual = sessoes.find(s => s.id === sessaoId);
     const tituloArquivo = sessaoAtual ? sessaoAtual.titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'conversa';
 
-    // Título do PDF
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.text("Histórico da Conversa - Chat IA", margemEsq, posicaoY);
     posicaoY += 8;
 
-    // Data da Exportação
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.text(`Data: ${new Date().toLocaleString('pt-PT')}`, margemEsq, posicaoY);
     posicaoY += 5;
     
-    // Linha Separadora
     doc.line(margemEsq, posicaoY, 195, posicaoY);
     posicaoY += 10;
 
-    // Percorrer todas as mensagens e adicioná-las ao PDF
     mensagens.forEach((msg) => {
       const autor = msg.autor === "usuario" ? "Você:" : "Inteligência Artificial:";
       
-      // Limpar marcações pesadas de Markdown para o PDF ficar limpo
       let textoLimpo = msg.texto
         .replace(/\*\*(.*?)\*\*/g, '$1')
         .replace(/\*(.*?)\*/g, '$1')
         .replace(/!\[.*?\]\(.*?\)/g, "[Imagem Gerada Aqui]");
 
-      // Escrever o Autor em Negrito
       doc.setFont("helvetica", "bold");
       
-      // Verificar se há espaço na página para o Autor, se não, cria nova página
       if (posicaoY > 270) {
         doc.addPage();
         posicaoY = 20;
@@ -410,12 +405,11 @@ export default function Home() {
       doc.text(autor, margemEsq, posicaoY);
       posicaoY += 6;
 
-      // Escrever o Texto Normal com quebra de linha inteligente
       doc.setFont("helvetica", "normal");
       const linhasTexto = doc.splitTextToSize(textoLimpo, larguraMaxima);
       
       for (let i = 0; i < linhasTexto.length; i++) {
-        if (posicaoY > 280) { // Se chegar ao fundo da folha (A4 tem ~297mm)
+        if (posicaoY > 280) {
           doc.addPage();
           posicaoY = 20;
         }
@@ -423,10 +417,9 @@ export default function Home() {
         posicaoY += 6;
       }
       
-      posicaoY += 8; // Espaço extra entre as mensagens
+      posicaoY += 8;
     });
 
-    // Descarregar o ficheiro PDF
     doc.save(`chat_${tituloArquivo}.pdf`);
   };
 
@@ -554,7 +547,6 @@ export default function Home() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        
         <header className="flex items-center justify-between p-3 border-b border-gray-700/50 bg-[#212121]">
           <div className="flex items-center gap-2">
             <button onClick={() => setMenuAberto(true)} className="md:hidden p-2 text-gray-300 hover:text-white">
@@ -566,14 +558,25 @@ export default function Home() {
             </button>
             <h1 className="hidden md:block text-lg font-semibold text-gray-200">Chat IA</h1>
           </div>
-          
-          <h1 className="md:hidden text-lg font-semibold text-gray-200">Chat IA</h1>
 
-          <div className="flex items-center">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <select
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              className="bg-[#2f2f2f] text-gray-300 text-xs sm:text-sm rounded-lg border border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-400 px-2 py-1.5 cursor-pointer shadow-sm transition-colors"
+              title="Escolha a Personalidade da IA"
+            >
+              <option value="Padrão">🤖 Padrão</option>
+              <option value="Programador">💻 Programador</option>
+              <option value="Professor de Inglês">🇬🇧 Prof. Inglês</option>
+              <option value="Copywriter">✍️ Copywriter</option>
+              <option value="Mestre Yoda">👽 Mestre Yoda</option>
+            </select>
+
             <button
               onClick={exportarConversaPDF}
               disabled={mensagens.length === 0}
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-900/40 hover:bg-red-800/60 text-sm text-red-200 rounded-lg transition-colors border border-red-800/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-red-900/40 hover:bg-red-800/60 text-xs sm:text-sm text-red-200 rounded-lg transition-colors border border-red-800/50 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Exportar Conversa em PDF"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -582,7 +585,7 @@ export default function Home() {
                 <line x1="12" y1="18" x2="12" y2="12"></line>
                 <line x1="9" y1="15" x2="15" y2="15"></line>
               </svg>
-              <span className="hidden sm:inline">Exportar PDF</span>
+              <span className="hidden sm:inline">PDF</span>
             </button>
           </div>
         </header>
