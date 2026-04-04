@@ -21,7 +21,6 @@ type Sessao = {
   titulo: string;
 };
 
-// --- CONFIGURAÇÃO DOS TEMAS DAS PERSONAS ---
 const temasPersona: Record<string, { bg: string; button: string; border: string; text: string; glow: string }> = {
   "Padrão": { bg: "bg-[#212121]", button: "bg-white text-black hover:bg-gray-200", border: "border-gray-700", text: "text-gray-100", glow: "shadow-[0_0_15px_rgba(255,255,255,0.05)]" },
   "Programador": { bg: "bg-[#0d1117]", button: "bg-[#2f81f7] text-white hover:bg-[#1f6feb]", border: "border-[#30363d]", text: "text-[#c9d1d9]", glow: "shadow-[0_0_15px_rgba(47,129,247,0.15)]" },
@@ -45,9 +44,11 @@ export default function Home() {
   const [carregando, setCarregando] = useState(false);
   const [sessaoId, setSessaoId] = useState<string>("");
   const [sessoes, setSessoes] = useState<Sessao[]>([]);
-  const [menuAberto, setMenuAberto] = useState(false);
-  const [copiadoIndex, setCopiadoIndex] = useState<number | null>(null);
   
+  const [sidebarAberta, setSidebarAberta] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  const [copiadoIndex, setCopiadoIndex] = useState<number | null>(null);
   const [ouvindo, setOuvindo] = useState(false);
   const [falandoIndex, setFalandoIndex] = useState<number | null>(null);
   
@@ -63,7 +64,6 @@ export default function Home() {
   const reconhecimentoRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // O tema atual selecionado
   const tema = temasPersona[persona] || temasPersona["Padrão"];
 
   const sugestoes = [
@@ -76,6 +76,19 @@ export default function Home() {
   const rolarParaOFinal = () => {
     fimDasMensagensRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebarAberta(false);
+      else setSidebarAberta(true);
+    };
+    
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -340,7 +353,7 @@ export default function Home() {
     setSessaoId(novoId);
     setMensagens([]);
     limparImagem();
-    if (window.innerWidth < 768) setMenuAberto(false);
+    if (isMobile) setSidebarAberta(false);
   };
 
   const selecionarSessao = (id: string) => {
@@ -348,7 +361,7 @@ export default function Home() {
     localStorage.setItem("chatbot_sessao_id", id);
     carregarHistorico(id);
     limparImagem();
-    if (window.innerWidth < 768) setMenuAberto(false);
+    if (isMobile) setSidebarAberta(false);
   };
 
   const enviarMensagem = async (e?: React.FormEvent, textoDireto?: string) => {
@@ -499,7 +512,6 @@ export default function Home() {
     }
   };
 
-  // --- TELA DE LOGIN ---
   if (!usuarioLogado) {
     return (
       <div className={`flex flex-col h-screen ${tema.bg} ${tema.text} font-sans items-center justify-center p-4 transition-colors duration-500`}>
@@ -590,91 +602,111 @@ export default function Home() {
     );
   }
 
-  // --- TELA PRINCIPAL (CHAT) ---
   return (
     <div className={`flex h-screen ${tema.bg} ${tema.text} font-sans overflow-hidden transition-colors duration-500`}>
       
-      {/* Menu Overlay Mobile Animado */}
       <AnimatePresence>
-        {menuAberto && (
+        {sidebarAberta && isMobile && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden" 
-            onClick={() => setMenuAberto(false)}
+            onClick={() => setSidebarAberta(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* Sidebar Animada */}
       <motion.aside 
-        className={`fixed md:relative z-50 h-full w-64 bg-black/40 backdrop-blur-md flex-shrink-0 flex flex-col transition-colors border-r ${tema.border}`}
+        className={`fixed md:relative z-50 h-full bg-black/40 backdrop-blur-md flex flex-col transition-colors border-r ${tema.border} overflow-hidden`}
         initial={false}
-        animate={{ x: menuAberto || (typeof window !== 'undefined' && window.innerWidth >= 768) ? 0 : "-100%" }}
+        animate={{ 
+          width: isMobile ? 256 : (sidebarAberta ? 256 : 0),
+          x: isMobile ? (sidebarAberta ? 0 : "-100%") : 0
+        }}
         transition={{ type: "spring", bounce: 0, duration: 0.4 }}
       >
-        <div className="p-4">
-          <button 
-            onClick={iniciarNovaConversa} 
-            className={`w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl transition-all font-semibold border ${tema.border} ${tema.button}`}
-          >
-            <div className="flex items-center gap-2">
+        <div className="w-64 h-full flex flex-col flex-shrink-0">
+          <div className="p-4 flex gap-2">
+            <button 
+              onClick={iniciarNovaConversa} 
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all font-semibold border ${tema.border} ${tema.button}`}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
-              Nova Conversa
-            </div>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-1 mt-2 custom-scrollbar">
-          <h3 className="text-xs font-semibold text-gray-500 mb-2 px-2 uppercase tracking-wider">Histórico</h3>
-          {sessoes.map((sessao) => (
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-              key={sessao.id} 
-              className={`group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer ${sessaoId === sessao.id ? "bg-white/10 text-white font-medium" : "text-gray-400 hover:bg-white/5 hover:text-gray-200"}`}
+              Nova
+            </button>
+            
+            <button 
+              onClick={() => setSidebarAberta(false)}
+              className={`flex-shrink-0 w-12 flex items-center justify-center rounded-xl transition-all border ${tema.border} hover:bg-white/10 text-gray-400 hover:text-white`}
+              title="Recolher Painel"
             >
-              <button onClick={() => selecionarSessao(sessao.id)} className="flex-1 text-left truncate pr-2">
-                {sessao.titulo}
-              </button>
-              <button onClick={(e) => apagarSessao(sessao.id, e)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all" title="Apagar conversa">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18"></path>
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                </svg>
-              </button>
-            </motion.div>
-          ))}
-        </div>
-
-        <div className={`p-4 border-t ${tema.border} bg-black/20`}>
-          <div className="flex items-center justify-between text-sm text-gray-400">
-            <span className="truncate pr-2 font-medium">{usuarioLogado}</span>
-            <button onClick={fazerLogout} className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors" title="Sair">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                <polyline points="16 17 21 12 16 7"></polyline>
-                <line x1="21" y1="12" x2="9" y2="12"></line>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                {isMobile ? (
+                  <path d="M18 6L6 18M6 6l12 12" />
+                ) : (
+                  <path d="M15 18l-6-6 6-6" />
+                )}
               </svg>
             </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-1 mt-2 custom-scrollbar">
+            <h3 className="text-xs font-semibold text-gray-500 mb-2 px-2 uppercase tracking-wider">Histórico</h3>
+            {sessoes.map((sessao) => (
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                key={sessao.id} 
+                className={`group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer ${sessaoId === sessao.id ? "bg-white/10 text-white font-medium" : "text-gray-400 hover:bg-white/5 hover:text-gray-200"}`}
+              >
+                <button onClick={() => selecionarSessao(sessao.id)} className="flex-1 text-left truncate pr-2">
+                  {sessao.titulo}
+                </button>
+                <button onClick={(e) => apagarSessao(sessao.id, e)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all" title="Apagar conversa">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                  </svg>
+                </button>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className={`p-4 border-t ${tema.border} bg-black/20`}>
+            <div className="flex items-center justify-between text-sm text-gray-400">
+              <span className="truncate pr-2 font-medium">{usuarioLogado}</span>
+              <button onClick={fazerLogout} className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors" title="Sair">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </motion.aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {/* Cabecalho Animado */}
         <header className={`flex items-center justify-between p-4 border-b ${tema.border} bg-black/20 backdrop-blur-md`}>
           <div className="flex items-center gap-3">
-            <button onClick={() => setMenuAberto(true)} className="md:hidden p-2 text-gray-400 hover:text-white bg-white/5 rounded-lg">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
-              </svg>
-            </button>
-            <h1 className="hidden md:flex text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-100 to-gray-500 items-center gap-2">
+            {!sidebarAberta && (
+              <motion.button 
+                initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                onClick={() => setSidebarAberta(true)} 
+                className={`p-2 text-gray-400 hover:text-white bg-white/5 border ${tema.border} rounded-lg`}
+                title="Abrir Histórico"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="3" y1="12" x2="21" y2="12"></line>
+                  <line x1="3" y1="6" x2="21" y2="6"></line>
+                  <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+              </motion.button>
+            )}
+            <h1 className="flex text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-100 to-gray-500 items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${tema.button.split(' ')[0]} animate-pulse`}></span>
               Chat IA
             </h1>
@@ -696,8 +728,7 @@ export default function Home() {
           </motion.div>
         </header>
 
-        {/* Área de Mensagens */}
-        <div className="flex-1 overflow-y-auto w-full flex flex-col items-center scroll-smooth">
+        <div className="flex-1 overflow-y-auto w-full flex flex-col items-center scroll-smooth custom-scrollbar">
           {mensagens.length === 0 ? (
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
@@ -820,7 +851,6 @@ export default function Home() {
                 ))}
               </AnimatePresence>
               
-              {/* Animacao de Carregamento (Dots) */}
               {carregando && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex w-full justify-start">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 flex-shrink-0 mt-1 shadow-lg ${tema.button}`}>
@@ -840,7 +870,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Input Area Animada */}
         <div className={`w-full flex flex-col items-center bg-black/20 backdrop-blur-md px-4 pb-6 pt-3 border-t ${tema.border}`}>
           <div className="w-full max-w-4xl relative">
             
