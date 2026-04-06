@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from groq import Groq
+from duckduckgo_search import DDGS  # <-- NOVO: O motor de busca!
 
 load_dotenv()
 
@@ -23,7 +24,7 @@ url: str = os.environ.get("SUPABASE_URL", "")
 key: str = os.environ.get("SUPABASE_KEY", "")
 supabase: Client = create_client(url, key)
 
-app = FastAPI(title="Chatbot IA API com Memória, Visão, Imagens, Personas e RAG (PDFs)")
+app = FastAPI(title="Chatbot IA API com Memória, Visão, Imagens, Personas, RAG e Web Search")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,9 +42,10 @@ class MensagemUsuario(BaseModel):
     sessao_id: str = "usuario_padrao"
     usuario_email: str = "anonimo"
     imagem: Optional[str] = None
-    documento: Optional[str] = None # <-- NOVO: Recebe o PDF em Base64
+    documento: Optional[str] = None
     persona: str = "Padrão"
     instrucoes_customizadas: Optional[str] = None
+    usar_internet: bool = False  # <-- NOVO: Diz ao backend se deve pesquisar na web
 
 sessoes_chat = {}
 
@@ -72,9 +74,28 @@ Aqui está a sua imagem:
 ![Descrição](https://image.pollinations.ai/prompt/seu%20prompt%20aqui%20com%20espacos%20substituidos%20por%20%20?width=800&height=800&nologo=true)
 """
 
+# --- NOVA FUNÇÃO: PESQUISA NA WEB ---
+def pesquisar_na_web(query: str) -> str:
+    try:
+        with DDGS() as ddgs:
+            # Obtém os 3 primeiros resultados do DuckDuckGo
+            resultados = list(ddgs.text(query, max_results=3))
+        
+        if not resultados:
+            return "\n\n[Nota do Sistema: Tentei pesquisar na internet, mas não encontrei resultados.]"
+            
+        contexto = "\n\n--- 🌐 RESULTADOS DA PESQUISA NA INTERNET (TEMPO REAL) ---\n"
+        for res in resultados:
+            contexto += f"Fonte: {res.get('title')} ({res.get('href')})\nResumo: {res.get('body')}\n\n"
+        contexto += "--------------------------------------------------------\n[Instrução para a IA: O usuário ativou a pesquisa na web. Use as informações acima para responder à pergunta com dados atualizados.]"
+        return contexto
+    except Exception as e:
+        print(f"Erro na pesquisa web: {e}")
+        return "\n\n[Nota do Sistema: Erro ao aceder à internet.]"
+
 @app.get("/")
 def read_root():
-    return {"status": "ok", "mensagem": "Backend rodando com Leitura de PDFs!"}
+    return {"status": "ok", "mensagem": "Backend rodando com Leitura de PDFs e Web Search!"}
 
 @app.post("/chat")
 def conversar_com_ia(mensagem: MensagemUsuario):
@@ -131,7 +152,7 @@ def conversar_com_ia(mensagem: MensagemUsuario):
             
         chat_atual = sessoes_chat[sessao]["chat"]
         
-        # --- LÓGICA DE LEITURA DE PDF (RAG) ---
+        # LÓGICA DE LEITURA DE PDF
         texto_pdf_extraido = ""
         if mensagem.documento:
             try:
@@ -142,15 +163,21 @@ def conversar_com_ia(mensagem: MensagemUsuario):
                     texto_pdf_extraido += pagina.extract_text() + "\n"
                 texto_pdf_extraido += "--- FIM DO DOCUMENTO ANEXADO ---\nPor favor, responda à minha pergunta com base nas informações deste documento que acabei de lhe enviar."
             except Exception as e:
-                print(f"Erro ao extrair PDF: {e}")
-                texto_pdf_extraido = "\n\n[Aviso: O usuário tentou enviar um PDF, mas ocorreu um erro ao lê-lo.]"
+                texto_pdf_extraido = "\n\n[Aviso: Erro ao ler PDF.]"
 
-        # Adiciona etiquetas ao histórico para a interface mostrar corretamente
+        # LÓGICA DE PESQUISA NA WEB
+        texto_internet = ""
+        if mensagem.usar_internet:
+            texto_internet = pesquisar_na_web(mensagem.texto)
+
+        # Adiciona etiquetas visuais no histórico
         texto_db = mensagem.texto
         if mensagem.imagem:
             texto_db += "\n\n*[Imagem anexada]*"
         if mensagem.documento:
             texto_db += "\n\n*[📄 PDF anexado]*"
+        if mensagem.usar_internet:
+            texto_db += "\n\n*[🌐 Pesquisa Web Ativada]*"
         
         supabase.table("mensagens_chat").insert({
             "sessao_id": sessao,
@@ -161,8 +188,8 @@ def conversar_com_ia(mensagem: MensagemUsuario):
         
         texto_resposta = ""
         
-        # Junta a mensagem do usuário com o texto do PDF (se houver)
-        prompt_final = mensagem.texto + texto_pdf_extraido
+        # O "Super Prompt" junta: Pergunta do Utilizador + Conteúdo do PDF + Pesquisa da Internet
+        prompt_final = mensagem.texto + texto_pdf_extraido + texto_internet
 
         try:
             prompt_parts = [prompt_final]
@@ -184,7 +211,6 @@ def conversar_com_ia(mensagem: MensagemUsuario):
                         role = "user" if msg["autor"] == "usuario" else "assistant"
                         groq_messages.append({"role": role, "content": msg["texto"]})
                 
-                # Injeta a pergunta final + PDF no Groq também
                 groq_messages.append({"role": "user", "content": prompt_final})
                 
                 chat_completion = groq_client.chat.completions.create(
