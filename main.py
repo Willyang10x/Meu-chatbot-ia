@@ -25,7 +25,7 @@ url: str = os.environ.get("SUPABASE_URL", "")
 key: str = os.environ.get("SUPABASE_KEY", "")
 supabase: Client = create_client(url, key)
 
-app = FastAPI(title="Chatbot IA API com Memória, Visão, RAG e Web Search (Tavily)")
+app = FastAPI(title="Chatbot IA API - Master RAG")
 
 app.add_middleware(
     CORSMiddleware,
@@ -84,20 +84,34 @@ def pesquisar_na_web(query: str) -> str:
         resultados = resposta.get("results", [])
         
         if not resultados:
-            return "\n\n[Nota do Sistema: Tentei pesquisar na internet via Tavily, mas não encontrei resultados.]"
+            return "\n\n[Nota do Sistema: Sem resultados.]"
             
-        contexto = "\n\n--- 🌐 RESULTADOS DA PESQUISA NA INTERNET (TAVILY) ---\n"
+        contexto = "\n\n--- 🌐 PESQUISA TAVILY ---\n"
         for res in resultados:
             contexto += f"Fonte: {res.get('title')} ({res.get('url')})\nResumo: {res.get('content')}\n\n"
-        contexto += "--------------------------------------------------------\n[Instrução para a IA: O usuário ativou a pesquisa na web. Use as informações acima para responder à pergunta com dados atualizados.]"
+        contexto += "--------------------------------------------------------\n[Instrução: Responda usando estes dados atualizados.]"
         return contexto
     except Exception as e:
-        print(f"Erro na pesquisa web Tavily: {e}")
-        return "\n\n[Nota do Sistema: Erro ao aceder à internet via Tavily.]"
+        return "\n\n[Nota do Sistema: Erro Tavily.]"
+
+def fatiar_e_vetorizar(texto: str, sessao_id: str):
+    try:
+        resp = client.models.embed_content(
+            model='text-embedding-004',
+            contents=texto
+        )
+        vetor = resp.embeddings[0].values
+        supabase.table("documentos_vetores").insert({
+            "sessao_id": sessao_id,
+            "conteudo": texto,
+            "embedding": vetor
+        }).execute()
+    except Exception as e:
+        print(f"Erro a vetorizar pedaço: {e}")
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "mensagem": "Backend rodando com Leitura de PDFs e Tavily Web Search!"}
+    return {"status": "ok", "mensagem": "RAG Vetorial Ativo!"}
 
 @app.post("/chat")
 def conversar_com_ia(mensagem: MensagemUsuario):
@@ -146,25 +160,54 @@ def conversar_com_ia(mensagem: MensagemUsuario):
             novo_chat = client.chats.create(
                 model='gemini-2.5-flash',
                 history=historico_formatado,
-                config=types.GenerateContentConfig(
-                    system_instruction=instrucoes
-                )
+                config=types.GenerateContentConfig(system_instruction=instrucoes)
             )
             sessoes_chat[sessao] = {"chat": novo_chat, "persona": mensagem.persona}
             
         chat_atual = sessoes_chat[sessao]["chat"]
         
-        texto_pdf_extraido = ""
         if mensagem.documento:
             try:
                 pdf_bytes = base64.b64decode(mensagem.documento)
                 leitor = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-                texto_pdf_extraido = f"\n\n--- INÍCIO DO DOCUMENTO ANEXADO ---\n"
+                texto_total = ""
                 for pagina in leitor.pages:
-                    texto_pdf_extraido += pagina.extract_text() + "\n"
-                texto_pdf_extraido += "--- FIM DO DOCUMENTO ANEXADO ---\nPor favor, responda à minha pergunta com base nas informações deste documento que acabei de lhe enviar."
+                    texto_total += pagina.extract_text() + "\n"
+                
+                tamanho_pedaco = 2000
+                pedacos = [texto_total[i:i+tamanho_pedaco] for i in range(0, len(texto_total), tamanho_pedaco)]
+                
+                for pedaco in pedacos[:25]:
+                    if pedaco.strip():
+                        fatiar_e_vetorizar(pedaco.strip(), sessao)
             except Exception as e:
-                texto_pdf_extraido = "\n\n[Aviso: Erro ao ler PDF.]"
+                print(f"Erro no processamento do PDF: {e}")
+
+        contexto_rag = ""
+        try:
+            resp_pergunta = client.models.embed_content(
+                model='text-embedding-004',
+                contents=mensagem.texto
+            )
+            vetor_pergunta = resp_pergunta.embeddings[0].values
+            
+            resultados_rag = supabase.rpc(
+                'match_documentos',
+                {
+                    'query_embedding': vetor_pergunta,
+                    'match_threshold': 0.3,
+                    'match_count': 3,
+                    'p_sessao_id': sessao
+                }
+            ).execute()
+            
+            if resultados_rag.data:
+                contexto_rag = "\n\n--- 📄 MEMÓRIA VETORIAL DO PDF ---\n"
+                for res in resultados_rag.data:
+                    contexto_rag += res['conteudo'] + "\n\n"
+                contexto_rag += "--------------------------------------------------------\n[Instrução: Use os dados do documento acima para responder.]\n"
+        except Exception as e:
+            print(f"Nenhum contexto RAG encontrado: {e}")
 
         texto_internet = ""
         if mensagem.usar_internet:
@@ -174,7 +217,7 @@ def conversar_com_ia(mensagem: MensagemUsuario):
         if mensagem.imagem:
             texto_db += "\n\n*[Imagem anexada]*"
         if mensagem.documento:
-            texto_db += "\n\n*[📄 PDF anexado]*"
+            texto_db += "\n\n*[📄 PDF Processado e guardado na memória da IA]*"
         if mensagem.usar_internet:
             texto_db += "\n\n*[🌐 Pesquisa Web Ativada]*"
         
@@ -186,7 +229,7 @@ def conversar_com_ia(mensagem: MensagemUsuario):
         }).execute()
         
         texto_resposta = ""
-        prompt_final = mensagem.texto + texto_pdf_extraido + texto_internet
+        prompt_final = mensagem.texto + contexto_rag + texto_internet
 
         try:
             prompt_parts = [prompt_final]
@@ -232,10 +275,8 @@ def conversar_com_ia(mensagem: MensagemUsuario):
     except Exception as erro_fatal:
         erro_detalhado = traceback.format_exc()
         print("ERRO CRÍTICO CAPTURADO:\n", erro_detalhado, flush=True)
-        
-        mensagem_erro = f"**Ops! Encontrei um erro no Backend 🚨**\n\nDetalhes para o desenvolvedor:\n```text\n{str(erro_fatal)}\n```"
         return {
-            "resposta": mensagem_erro,
+            "resposta": f"**Ops! Encontrei um erro no Backend 🚨**\n\n```text\n{str(erro_fatal)}\n```",
             "sessao_id": mensagem.sessao_id
         }
 
@@ -272,6 +313,7 @@ def listar_sessoes(usuario_email: str):
 @app.delete("/sessoes/{sessao_id}")
 def apagar_sessao(sessao_id: str):
     supabase.table("mensagens_chat").delete().eq("sessao_id", sessao_id).execute()
+    supabase.table("documentos_vetores").delete().eq("sessao_id", sessao_id).execute()
     if sessao_id in sessoes_chat:
         del sessoes_chat[sessao_id]
     return {"status": "apagado"}
