@@ -29,7 +29,7 @@ url: str = os.environ.get("SUPABASE_URL", "")
 key: str = os.environ.get("SUPABASE_KEY", "")
 supabase: Client = create_client(url, key)
 
-app = FastAPI(title="Chatbot IA API - Master RAG, YouTube e Web Scraper")
+app = FastAPI(title="Chatbot IA API - Master RAG, YouTube, Web Scraper e Tutor")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,10 +52,11 @@ class MensagemUsuario(BaseModel):
     instrucoes_customizadas: Optional[str] = None
     usar_internet: bool = False
     bloco_notas: Optional[str] = None
+    modo_tutor: bool = False
 
 sessoes_chat = {}
 
-def obter_instrucoes_sistema(data_hoje, persona, instrucoes_customizadas=None):
+def obter_instrucoes_sistema(data_hoje, persona, instrucoes_customizadas=None, modo_tutor=False):
     base_prompt = f"Hoje é dia {data_hoje}. "
     
     if instrucoes_customizadas:
@@ -71,6 +72,19 @@ def obter_instrucoes_sistema(data_hoje, persona, instrucoes_customizadas=None):
     else:
         base_prompt += "Você é um assistente prestativo, educado e amigável."
 
+    if modo_tutor:
+        base_prompt += """
+\n\n*** ATENÇÃO: MODO TUTOR / ENTREVISTADOR ATIVADO ***
+A partir de agora, você assumirá o controle da conversa. O seu objetivo é testar o conhecimento do utilizador ou prepará-lo para uma entrevista.
+REGRAS DO MODO TUTOR:
+1. Faça APENAS UMA pergunta de cada vez sobre o tema que o utilizador indicar.
+2. Aguarde a resposta do utilizador.
+3. Quando o utilizador responder, avalie detalhadamente se a resposta está correta, parcialmente correta ou errada.
+4. Explique o porquê da sua avaliação de forma construtiva e dê a resposta ideal se o utilizador errar.
+5. Em seguida, faça a próxima pergunta para continuar o teste.
+Nunca dê a lista de perguntas todas de uma vez. Mantenha o formato: Pergunta -> Avaliação -> Próxima Pergunta.
+"""
+
     return base_prompt + """
 Você possui a habilidade de gerar imagens. Se o usuário pedir para gerar, criar ou desenhar uma imagem, você NUNCA deve dizer que não consegue. 
 Em vez disso, você deve criar um prompt em INGLÊS muito detalhado e retornar a imagem usando o formato Markdown e a API do Pollinations.
@@ -80,7 +94,7 @@ Aqui está a sua imagem:
 ![Descrição](https://image.pollinations.ai/prompt/seu%20prompt%20aqui%20com%20espacos%20substituidos%20por%20%20?width=800&height=800&nologo=true)
 
 REGRA DE OURO (PERGUNTAS DE SEGUIMENTO):
-Sempre, no final absoluto de cada resposta sua, você DEVE fornecer exatamente 3 sugestões de perguntas lógicas que o usuário pode fazer a seguir para continuar a conversa de forma natural.
+Sempre, no final absoluto de cada resposta sua, você DEVE fornecer exatamente 3 sugestões de perguntas lógicas que o usuário pode fazer a seguir para continuar a conversa de forma natural. Se o Modo Tutor estiver ativo, sugira respostas ou formas de pedir dicas.
 Formate OBRIGATORIAMENTE assim no final da sua resposta:
 ---SUGESTOES---
 1. [Sua sugestão de pergunta 1]
@@ -151,9 +165,9 @@ def conversar_com_ia(mensagem: MensagemUsuario):
         email = mensagem.usuario_email
         data_hoje = datetime.now().strftime("%d/%m/%Y")
         
-        instrucoes = obter_instrucoes_sistema(data_hoje, mensagem.persona, mensagem.instrucoes_customizadas)
+        instrucoes = obter_instrucoes_sistema(data_hoje, mensagem.persona, mensagem.instrucoes_customizadas, mensagem.modo_tutor)
         
-        if sessao not in sessoes_chat or sessoes_chat[sessao].get("persona") != mensagem.persona:
+        if sessao not in sessoes_chat or sessoes_chat[sessao].get("persona") != mensagem.persona or sessoes_chat[sessao].get("modo_tutor") != mensagem.modo_tutor:
             resposta_banco = supabase.table("mensagens_chat").select("*").eq("sessao_id", sessao).order("criado_em").execute()
             
             if len(resposta_banco.data) == 0:
@@ -193,7 +207,7 @@ def conversar_com_ia(mensagem: MensagemUsuario):
                 history=historico_formatado,
                 config=types.GenerateContentConfig(system_instruction=instrucoes)
             )
-            sessoes_chat[sessao] = {"chat": novo_chat, "persona": mensagem.persona}
+            sessoes_chat[sessao] = {"chat": novo_chat, "persona": mensagem.persona, "modo_tutor": mensagem.modo_tutor}
             
         chat_atual = sessoes_chat[sessao]["chat"]
         
