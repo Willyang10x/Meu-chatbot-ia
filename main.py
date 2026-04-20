@@ -4,6 +4,8 @@ import base64
 import traceback
 import PyPDF2
 import re
+import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI
@@ -27,7 +29,7 @@ url: str = os.environ.get("SUPABASE_URL", "")
 key: str = os.environ.get("SUPABASE_KEY", "")
 supabase: Client = create_client(url, key)
 
-app = FastAPI(title="Chatbot IA API - Master")
+app = FastAPI(title="Chatbot IA API - Master RAG, YouTube e Web Scraper")
 
 app.add_middleware(
     CORSMiddleware,
@@ -119,6 +121,24 @@ def fatiar_e_vetorizar(texto: str, sessao_id: str):
         }).execute()
     except Exception as e:
         pass
+
+def extrair_texto_site(url: str) -> str:
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            script.extract()
+            
+        texto = soup.get_text(separator=' ', strip=True)
+        return texto[:15000]
+    except Exception:
+        return ""
 
 @app.get("/")
 def read_root():
@@ -239,6 +259,21 @@ def conversar_com_ia(mensagem: MensagemUsuario):
             except Exception:
                 texto_youtube = "\n\n[Nota do Sistema: Não foi possível obter as legendas deste vídeo do YouTube.]\n"
 
+        texto_site = ""
+        todas_urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', mensagem.texto)
+        urls_artigos = [u for u in todas_urls if "youtube.com" not in u and "youtu.be" not in u]
+        
+        if urls_artigos and not yt_urls:
+            url_alvo = urls_artigos[0]
+            if not url_alvo.startswith("http"):
+                url_alvo = "https://" + url_alvo
+                
+            conteudo_site = extrair_texto_site(url_alvo)
+            if conteudo_site:
+                texto_site = f"\n\n--- 🔗 CONTEÚDO DO SITE EXTRAÍDO ({url_alvo}) ---\n{conteudo_site}\n--------------------------------------------------------\n[Instrução: O utilizador partilhou um link web. Leia e utilize o texto extraído do site acima para responder.]\n"
+            else:
+                texto_site = f"\n\n[Nota do Sistema: O utilizador partilhou o link {url_alvo}, mas não foi possível ler o texto (possível bloqueio de segurança do site). Informe-o disto.]\n"
+
         texto_db = mensagem.texto
         if mensagem.imagem:
             texto_db += "\n\n*[Imagem anexada]*"
@@ -248,6 +283,8 @@ def conversar_com_ia(mensagem: MensagemUsuario):
             texto_db += "\n\n*[🌐 Pesquisa Web Ativada]*"
         if yt_urls:
             texto_db += "\n\n*[📺 Vídeo do YouTube Analisado]*"
+        if urls_artigos and not yt_urls and texto_site and "[Nota do Sistema" not in texto_site:
+            texto_db += "\n\n*[🔗 Link Analisado pelo Raio-X]*"
         
         supabase.table("mensagens_chat").insert({
             "sessao_id": sessao,
@@ -257,7 +294,7 @@ def conversar_com_ia(mensagem: MensagemUsuario):
         }).execute()
         
         texto_resposta = ""
-        prompt_final = mensagem.texto + contexto_rag + texto_internet + texto_bloco_notas + texto_youtube
+        prompt_final = mensagem.texto + contexto_rag + texto_internet + texto_bloco_notas + texto_youtube + texto_site
 
         try:
             prompt_parts = [prompt_final]
